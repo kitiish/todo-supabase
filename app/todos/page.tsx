@@ -2,6 +2,7 @@
 
 import { useEffect, useState, FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { Todo } from '@/types'
@@ -111,8 +112,14 @@ export default function TodosPage() {
           <h1 className="text-lg font-semibold text-gray-900">My Todos</h1>
           <div className="flex items-center gap-3">
             <span className="text-sm text-gray-500 hidden sm:block truncate max-w-[180px]">
-              {user.email}
+              {user.user_metadata?.full_name || user.email}
             </span>
+            <Link
+              href="/settings"
+              className="text-sm text-gray-600 hover:text-gray-900 font-medium transition"
+            >
+              Settings
+            </Link>
             <button
               onClick={handleSignOut}
               className="text-sm text-gray-600 hover:text-gray-900 font-medium transition"

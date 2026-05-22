@@ -16,6 +16,11 @@
       "static/chunks/main-app.js",
       "static/chunks/app/auth/page.js"
     ],
+    "/settings/page": [
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/settings/page.js"
+    ],
     "/todos/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
