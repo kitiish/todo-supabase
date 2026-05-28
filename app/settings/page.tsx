@@ -1,18 +1,21 @@
 'use client'
 
-import { useState, useEffect, FormEvent } from 'react'
+import { useState, useEffect, FormEvent, ChangeEvent, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/contexts/AuthContext'
+import { supabase } from '@/lib/supabase'
 
 export default function SettingsPage() {
-  const { user, loading, updateProfile } = useAuth()
+  const { user, loading, updateProfile, updateAvatar } = useAuth()
   const router = useRouter()
 
   const [name, setName] = useState('')
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!loading && !user) {
@@ -25,6 +28,53 @@ export default function SettingsPage() {
       setName(user.user_metadata?.full_name ?? '')
     }
   }, [user])
+
+  const handleAvatarUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !user) return
+
+    const allowed = ['image/jpeg', 'image/png', 'image/webp']
+    if (!allowed.includes(file.type)) {
+      setError('Please upload a JPG, PNG, or WebP image.')
+      return
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setError('Image must be under 2MB.')
+      return
+    }
+
+    setUploadingAvatar(true)
+    setError(null)
+    setMessage(null)
+
+    const ext = file.name.split('.').pop() ?? 'jpg'
+    const path = `${user.id}/avatar.${ext}`
+
+    const { error: uploadError } = await supabase.storage
+      .from('avatars')
+      .upload(path, file, { upsert: true })
+
+    if (uploadError) {
+      setError(uploadError.message)
+      setUploadingAvatar(false)
+      return
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('avatars')
+      .getPublicUrl(path)
+
+    const { error: updateError } = await updateAvatar(publicUrl)
+
+    if (updateError) {
+      setError(updateError)
+    } else {
+      setMessage('Avatar updated successfully.')
+    }
+
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    setUploadingAvatar(false)
+  }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
@@ -62,21 +112,65 @@ export default function SettingsPage() {
         </div>
       </header>
 
-      <main className="max-w-xl mx-auto px-4 py-8">
+      <main className="max-w-xl mx-auto px-4 py-8 space-y-4">
+        {error && (
+          <div className="px-4 py-3 rounded-lg bg-red-50 text-red-700 text-sm border border-red-100 flex items-center justify-between">
+            <span>{error}</span>
+            <button onClick={() => setError(null)} className="ml-2 text-red-400 hover:text-red-600">&times;</button>
+          </div>
+        )}
+        {message && (
+          <div className="px-4 py-3 rounded-lg bg-green-50 text-green-700 text-sm border border-green-100">
+            {message}
+          </div>
+        )}
+
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+          <h2 className="text-base font-semibold text-gray-900 mb-1">Avatar</h2>
+          <p className="text-sm text-gray-500 mb-5">Upload a profile photo. JPG, PNG, or WebP — max 2MB.</p>
+
+          <div className="flex items-center gap-4">
+            <div className="w-16 h-16 rounded-full overflow-hidden bg-gray-100 flex-shrink-0 border border-gray-200">
+              {user.user_metadata?.avatar_url ? (
+                <img
+                  src={user.user_metadata.avatar_url}
+                  alt="Avatar"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">
+                  No photo
+                </div>
+              )}
+            </div>
+
+            <div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={handleAvatarUpload}
+                className="hidden"
+                id="avatar-upload"
+                disabled={uploadingAvatar}
+              />
+              <label
+                htmlFor="avatar-upload"
+                className={`inline-block px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 cursor-pointer transition ${
+                  uploadingAvatar
+                    ? 'opacity-40 cursor-not-allowed'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                {uploadingAvatar ? 'Uploading...' : 'Upload photo'}
+              </label>
+            </div>
+          </div>
+        </div>
+
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
           <h2 className="text-base font-semibold text-gray-900 mb-1">Profile</h2>
           <p className="text-sm text-gray-500 mb-5">Update the name shown in the app.</p>
-
-          {error && (
-            <div className="mb-4 px-4 py-3 rounded-lg bg-red-50 text-red-700 text-sm border border-red-100">
-              {error}
-            </div>
-          )}
-          {message && (
-            <div className="mb-4 px-4 py-3 rounded-lg bg-green-50 text-green-700 text-sm border border-green-100">
-              {message}
-            </div>
-          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
