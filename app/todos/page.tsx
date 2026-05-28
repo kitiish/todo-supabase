@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, FormEvent } from 'react'
+import { useEffect, useState, useRef, FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
@@ -16,6 +16,9 @@ export default function TodosPage() {
   const [fetching, setFetching] = useState(true)
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editingText, setEditingText] = useState('')
+  const editCancelledRef = useRef(false)
 
   useEffect(() => {
     if (!loading && !user) {
@@ -88,6 +91,41 @@ export default function TodosPage() {
     } else {
       setTodos(todos.filter((t) => t.id !== id))
     }
+  }
+
+  const startEditing = (todo: Todo) => {
+    editCancelledRef.current = false
+    setEditingId(todo.id)
+    setEditingText(todo.title)
+  }
+
+  const cancelEdit = () => {
+    editCancelledRef.current = true
+    setEditingId(null)
+    setEditingText('')
+  }
+
+  const commitEdit = async (todo: Todo) => {
+    if (editCancelledRef.current) return
+    setEditingId(null)
+    const title = editingText.trim()
+    if (!title || title === todo.title) {
+      setEditingText('')
+      return
+    }
+    const { data, error } = await supabase
+      .from('todos')
+      .update({ title })
+      .eq('id', todo.id)
+      .eq('user_id', user!.id)
+      .select()
+      .single()
+    if (error) {
+      setError(error.message)
+    } else {
+      setTodos((prev) => prev.map((t) => (t.id === todo.id ? data : t)))
+    }
+    setEditingText('')
   }
 
   if (loading || !user) {
@@ -187,13 +225,29 @@ export default function TodosPage() {
                   )}
                 </button>
 
-                <span
-                  className={`flex-1 text-sm ${
-                    todo.is_complete ? 'line-through text-gray-400' : 'text-gray-800'
-                  }`}
-                >
-                  {todo.title}
-                </span>
+                {editingId === todo.id ? (
+                  <input
+                    autoFocus
+                    type="text"
+                    value={editingText}
+                    onChange={(e) => setEditingText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') e.currentTarget.blur()
+                      else if (e.key === 'Escape') { cancelEdit(); e.currentTarget.blur() }
+                    }}
+                    onBlur={() => commitEdit(todo)}
+                    className="flex-1 text-sm border border-gray-300 rounded px-2 py-0.5 bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent text-gray-800"
+                  />
+                ) : (
+                  <span
+                    onClick={() => startEditing(todo)}
+                    className={`flex-1 text-sm cursor-text ${
+                      todo.is_complete ? 'line-through text-gray-400' : 'text-gray-800'
+                    }`}
+                  >
+                    {todo.title}
+                  </span>
+                )}
 
                 <button
                   onClick={() => deleteTodo(todo.id)}
