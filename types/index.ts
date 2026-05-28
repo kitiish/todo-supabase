@@ -4,4 +4,5 @@ export interface Todo {
   title: string
   is_complete: boolean
   user_id: string
+  due_date: string | null
 }
