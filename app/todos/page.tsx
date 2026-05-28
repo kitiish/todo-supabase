@@ -2,13 +2,13 @@
 
 import { useEffect, useState, FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { Todo } from '@/types'
+import { AvatarDropdown } from '@/app/components/AvatarDropdown'
 
 export default function TodosPage() {
-  const { user, loading, signOut } = useAuth()
+  const { user, loading } = useAuth()
   const router = useRouter()
 
   const [todos, setTodos] = useState<Todo[]>([])
@@ -90,11 +90,6 @@ export default function TodosPage() {
     }
   }
 
-  const handleSignOut = async () => {
-    await signOut()
-    router.replace('/auth')
-  }
-
   if (loading || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -110,23 +105,7 @@ export default function TodosPage() {
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-xl mx-auto px-4 py-4 flex items-center justify-between">
           <h1 className="text-lg font-semibold text-gray-900">My Todos</h1>
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-500 hidden sm:block truncate max-w-[180px]">
-              {user.user_metadata?.full_name || user.email}
-            </span>
-            <Link
-              href="/settings"
-              className="text-sm text-gray-600 hover:text-gray-900 font-medium transition"
-            >
-              Settings
-            </Link>
-            <button
-              onClick={handleSignOut}
-              className="text-sm text-gray-600 hover:text-gray-900 font-medium transition"
-            >
-              Sign out
-            </button>
-          </div>
+          <AvatarDropdown />
         </div>
       </header>
 
