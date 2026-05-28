@@ -7,6 +7,35 @@ import { supabase } from '@/lib/supabase'
 import { Todo } from '@/types'
 import { AvatarDropdown } from '@/app/components/AvatarDropdown'
 
+function todayStr(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function formatDueDate(dateStr: string): string {
+  const today = todayStr()
+  if (dateStr === today) return 'Due today'
+  const t = new Date()
+  t.setDate(t.getDate() + 1)
+  const tomorrow = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`
+  if (dateStr === tomorrow) return 'Due tomorrow'
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const date = new Date(y, m - 1, d)
+  return `Due ${date.getDate()} ${date.toLocaleString('en', { month: 'short' })}`
+}
+
+function getDueDateColor(dateStr: string, isComplete: boolean): string {
+  if (isComplete) return 'text-gray-400'
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const due = new Date(y, m - 1, d)
+  const diffDays = Math.round((due.getTime() - today.getTime()) / 86400000)
+  if (diffDays < 0) return 'text-red-500'
+  if (diffDays <= 2) return 'text-amber-500'
+  return 'text-gray-400'
+}
+
 export default function TodosPage() {
   const { user, loading } = useAuth()
   const router = useRouter()
@@ -18,6 +47,8 @@ export default function TodosPage() {
   const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editingText, setEditingText] = useState('')
+  const [editingDueDate, setEditingDueDate] = useState('')
+  const [newDueDate, setNewDueDate] = useState('')
   const editCancelledRef = useRef(false)
 
   useEffect(() => {
@@ -55,7 +86,7 @@ export default function TodosPage() {
     setAdding(true)
     const { data, error } = await supabase
       .from('todos')
-      .insert({ title, user_id: user.id })
+      .insert({ title, user_id: user.id, due_date: newDueDate || null })
       .select()
       .single()
 
@@ -64,6 +95,7 @@ export default function TodosPage() {
     } else {
       setTodos([data, ...todos])
       setNewTitle('')
+      setNewDueDate('')
     }
     setAdding(false)
   }
@@ -97,25 +129,37 @@ export default function TodosPage() {
     editCancelledRef.current = false
     setEditingId(todo.id)
     setEditingText(todo.title)
+    setEditingDueDate(todo.due_date ?? '')
   }
 
   const cancelEdit = () => {
     editCancelledRef.current = true
     setEditingId(null)
     setEditingText('')
+    setEditingDueDate('')
   }
 
   const commitEdit = async (todo: Todo) => {
     if (editCancelledRef.current) return
+    editCancelledRef.current = true  // prevent double-commit if blur fires after Enter
     setEditingId(null)
     const title = editingText.trim()
-    if (!title || title === todo.title) {
+    const dueDate = editingDueDate || null
+    if (!title) {
       setEditingText('')
+      setEditingDueDate('')
+      return
+    }
+    const titleChanged = title !== todo.title
+    const dueDateChanged = dueDate !== (todo.due_date ?? null)
+    if (!titleChanged && !dueDateChanged) {
+      setEditingText('')
+      setEditingDueDate('')
       return
     }
     const { data, error } = await supabase
       .from('todos')
-      .update({ title })
+      .update({ title, due_date: dueDate })
       .eq('id', todo.id)
       .eq('user_id', user!.id)
       .select()
@@ -126,6 +170,22 @@ export default function TodosPage() {
       setTodos((prev) => prev.map((t) => (t.id === todo.id ? data : t)))
     }
     setEditingText('')
+    setEditingDueDate('')
+  }
+
+  const clearDueDate = async (todo: Todo) => {
+    const { data, error } = await supabase
+      .from('todos')
+      .update({ due_date: null })
+      .eq('id', todo.id)
+      .eq('user_id', user!.id)
+      .select()
+      .single()
+    if (error) {
+      setError(error.message)
+    } else {
+      setTodos((prev) => prev.map((t) => (t.id === todo.id ? data : t)))
+    }
   }
 
   if (loading || !user) {
@@ -169,6 +229,12 @@ export default function TodosPage() {
             placeholder="Add a new todo..."
             className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition"
           />
+          <input
+            type="date"
+            value={newDueDate}
+            onChange={(e) => setNewDueDate(e.target.value)}
+            className="shrink-0 px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition"
+          />
           <button
             type="submit"
             disabled={adding || !newTitle.trim()}
@@ -201,11 +267,11 @@ export default function TodosPage() {
             {todos.map((todo) => (
               <li
                 key={todo.id}
-                className="flex items-center gap-3 bg-white border border-gray-200 rounded-lg px-4 py-3 group"
+                className="flex items-start gap-3 bg-white border border-gray-200 rounded-lg px-4 py-3 group"
               >
                 <button
                   onClick={() => toggleTodo(todo)}
-                  className={`flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition ${
+                  className={`mt-0.5 flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition ${
                     todo.is_complete
                       ? 'bg-gray-900 border-gray-900'
                       : 'border-gray-300 hover:border-gray-400'
@@ -225,33 +291,67 @@ export default function TodosPage() {
                   )}
                 </button>
 
-                {editingId === todo.id ? (
-                  <input
-                    autoFocus
-                    type="text"
-                    value={editingText}
-                    onChange={(e) => setEditingText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') e.currentTarget.blur()
-                      else if (e.key === 'Escape') { cancelEdit(); e.currentTarget.blur() }
-                    }}
-                    onBlur={() => commitEdit(todo)}
-                    className="flex-1 text-sm border border-gray-300 rounded px-2 py-0.5 bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent text-gray-800"
-                  />
-                ) : (
-                  <span
-                    onClick={() => startEditing(todo)}
-                    className={`flex-1 text-sm cursor-text ${
-                      todo.is_complete ? 'line-through text-gray-400' : 'text-gray-800'
-                    }`}
-                  >
-                    {todo.title}
-                  </span>
-                )}
+                <div className="flex-1 min-w-0">
+                  {editingId === todo.id ? (
+                    <div
+                      className="flex items-center gap-2"
+                      onBlur={(e) => {
+                        if (!e.currentTarget.contains(e.relatedTarget as Node)) commitEdit(todo)
+                      }}
+                    >
+                      <input
+                        autoFocus
+                        type="text"
+                        value={editingText}
+                        onChange={(e) => setEditingText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') commitEdit(todo)
+                          else if (e.key === 'Escape') cancelEdit()
+                        }}
+                        className="flex-1 text-sm border border-gray-300 rounded px-2 py-0.5 bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent text-gray-800"
+                      />
+                      <input
+                        type="date"
+                        value={editingDueDate}
+                        onChange={(e) => setEditingDueDate(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') cancelEdit()
+                          else if (e.key === 'Enter') commitEdit(todo)
+                        }}
+                        className="shrink-0 text-sm border border-gray-300 rounded px-2 py-0.5 bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent text-gray-500"
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      <span
+                        onClick={() => startEditing(todo)}
+                        className={`text-sm cursor-text ${
+                          todo.is_complete ? 'line-through text-gray-400' : 'text-gray-800'
+                        }`}
+                      >
+                        {todo.title}
+                      </span>
+                      {todo.due_date && (
+                        <div className="flex items-center gap-1 mt-1">
+                          <span className={`text-xs ${getDueDateColor(todo.due_date, todo.is_complete)}`}>
+                            {formatDueDate(todo.due_date)}
+                          </span>
+                          <button
+                            onClick={() => clearDueDate(todo)}
+                            className="text-gray-300 hover:text-gray-500 opacity-0 group-hover:opacity-100 transition text-xs leading-none"
+                            aria-label="Remove due date"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
 
                 <button
                   onClick={() => deleteTodo(todo.id)}
-                  className="flex-shrink-0 text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition p-1 -mr-1 rounded"
+                  className="mt-0.5 flex-shrink-0 text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition p-1 -mr-1 rounded"
                   aria-label="Delete todo"
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
