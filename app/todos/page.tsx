@@ -36,6 +36,23 @@ function getDueDateColor(dateStr: string, isComplete: boolean): string {
   return 'text-gray-400'
 }
 
+function sortTodos(todos: Todo[]): Todo[] {
+  return [...todos].sort((a, b) => {
+    // Group: 0 = incomplete+date, 1 = incomplete+no date, 2 = complete
+    const ga = a.is_complete ? 2 : a.due_date ? 0 : 1
+    const gb = b.is_complete ? 2 : b.due_date ? 0 : 1
+    if (ga !== gb) return ga - gb
+    // Within group 0: soonest date first
+    if (ga === 0) {
+      if (a.due_date! < b.due_date!) return -1
+      if (a.due_date! > b.due_date!) return 1
+    }
+    // Same date (or both undated/complete): priority first
+    if (a.is_priority !== b.is_priority) return a.is_priority ? -1 : 1
+    return 0
+  })
+}
+
 export default function TodosPage() {
   const { user, loading } = useAuth()
   const router = useRouter()
@@ -86,7 +103,7 @@ export default function TodosPage() {
     setAdding(true)
     const { data, error } = await supabase
       .from('todos')
-      .insert({ title, user_id: user.id, due_date: newDueDate || null })
+      .insert({ title, user_id: user.id, due_date: newDueDate || null, is_priority: false })
       .select()
       .single()
 
@@ -188,6 +205,26 @@ export default function TodosPage() {
     }
   }
 
+  const togglePriority = async (todo: Todo) => {
+    const optimistic = { ...todo, is_priority: !todo.is_priority }
+    setTodos((prev) => prev.map((t) => (t.id === todo.id ? optimistic : t)))
+
+    const { data, error } = await supabase
+      .from('todos')
+      .update({ is_priority: !todo.is_priority })
+      .eq('id', todo.id)
+      .eq('user_id', user!.id)
+      .select()
+      .single()
+
+    if (error) {
+      setError(error.message)
+      setTodos((prev) => prev.map((t) => (t.id === todo.id ? todo : t)))
+    } else {
+      setTodos((prev) => prev.map((t) => (t.id === todo.id ? data : t)))
+    }
+  }
+
   if (loading || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -196,6 +233,7 @@ export default function TodosPage() {
     )
   }
 
+  const sortedTodos = sortTodos(todos)
   const remaining = todos.filter((t) => !t.is_complete).length
 
   return (
@@ -264,10 +302,14 @@ export default function TodosPage() {
           </div>
         ) : (
           <ul className="space-y-2">
-            {todos.map((todo) => (
+            {sortedTodos.map((todo) => (
               <li
                 key={todo.id}
-                className="flex items-start gap-3 bg-white border border-gray-200 rounded-lg px-4 py-3 group"
+                className={`flex items-start gap-3 rounded-lg px-4 py-3 group border border-gray-200 transition ${
+                  todo.is_priority && !todo.is_complete
+                    ? 'bg-rose-50 border-l-4 border-l-rose-400'
+                    : 'bg-white'
+                }`}
               >
                 <button
                   onClick={() => toggleTodo(todo)}
@@ -331,20 +373,43 @@ export default function TodosPage() {
                       >
                         {todo.title}
                       </span>
-                      {todo.due_date && (
-                        <div className="flex items-center gap-1 mt-1">
-                          <span className={`text-xs ${getDueDateColor(todo.due_date, todo.is_complete)}`}>
-                            {formatDueDate(todo.due_date)}
-                          </span>
-                          <button
-                            onClick={() => clearDueDate(todo)}
-                            className="text-gray-300 hover:text-gray-500 opacity-0 group-hover:opacity-100 transition text-xs leading-none"
-                            aria-label="Remove due date"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      )}
+                      <div className="flex items-center gap-2 mt-1">
+                        {todo.due_date && (
+                          <>
+                            <span className={`text-xs ${getDueDateColor(todo.due_date, todo.is_complete)}`}>
+                              {formatDueDate(todo.due_date)}
+                            </span>
+                            <button
+                              onClick={() => clearDueDate(todo)}
+                              className="text-gray-300 hover:text-gray-500 opacity-0 group-hover:opacity-100 transition text-xs leading-none"
+                              aria-label="Remove due date"
+                            >
+                              ×
+                            </button>
+                          </>
+                        )}
+                        <button
+                          onClick={() => togglePriority(todo)}
+                          className={`transition ${
+                            todo.is_priority
+                              ? 'text-rose-400 hover:text-rose-500'
+                              : 'text-gray-300 hover:text-rose-400'
+                          }`}
+                          aria-label={todo.is_priority ? 'Remove priority' : 'Mark as priority'}
+                        >
+                          {todo.is_priority ? (
+                            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+                              <line x1="4" x2="4" y1="22" y2="15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                            </svg>
+                          ) : (
+                            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+                              <line x1="4" x2="4" y1="22" y2="15" />
+                            </svg>
+                          )}
+                        </button>
+                      </div>
                     </>
                   )}
                 </div>
